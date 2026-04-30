@@ -285,8 +285,7 @@ Tarayıcıda `http://localhost:8501` açılır.
 ├── app.py              # Ana uygulama (Streamlit + Plotly + NetworkX)
 ├── requirements.txt    # Python bağımlılıkları
 ├── README.md           # Bu dosya
-├── BASLAT.bat          # Windows için tek tıkla başlatma
-└── kurulum.bat         # Windows için otomatik kurulum
+
 ```
 
 ---
