@@ -1,7 +1,6 @@
-﻿requests
-pyperclip
-pynput
-pyautogui
-sympy
-Pillow
-PyMuPDF
+﻿streamlit
+plotly
+networkx
+scikit-learn
+pandas
+requests
