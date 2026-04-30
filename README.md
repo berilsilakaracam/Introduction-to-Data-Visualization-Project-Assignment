@@ -128,6 +128,17 @@ Ağ yönetiminde bu fark hayati önem taşır: **bir saniye bile kritik olabilir
 
 ---
 
+## 🏢 Endüstri Perspektifi
+
+| Özellik | NetViz Pro | SolarWinds | Grafana |
+|---|---|---|---|
+| Kurulum | 2 komut | Haftalarca | Günlerce |
+| Maliyet | Ücretsiz | $10,000+/yıl | Ücretsiz |
+| AI Tahmin | ✅ LinReg | ❌ | Eklenti |
+| IP Konum | ✅ Otomatik | ❌ | ❌ |
+| Çözüm Önerisi | ✅ Komutlu | ❌ | ❌ |
+| Özelleştirme | Tam kontrol | Sınırlı | Orta |
+
 ## 🔄 Veri Akış Diyagramı
 
 ```
@@ -164,7 +175,44 @@ Ağ Cihazları
            Streamlit UI
            (localhost:8501)
 ```
+## 🗺 Sistem Akış Diyagramı
 
+```mermaid
+flowchart TD
+    A[👤 Ağ Mühendisi] -->|Tarayıcı localhost:8501| B[⚡ NetViz Pro Arayüzü]
+
+    B --> C[🔍 Keşif Motoru]
+    B --> D[📊 Görselleştirme]
+    B --> E[🤖 Tahmin Motoru]
+    B --> F[🌍 Konum Servisi]
+
+    C -->|ARP / ICMP Ping| C1[Scapy]
+    C1 -->|IP, MAC, Hostname| G[🐼 Pandas\nVeri İşleme]
+
+    G --> D
+    G --> E
+    G --> H[🚨 Anomali Dedektörü]
+
+    D -->|Graf yapısı| D1[NetworkX]
+    D1 -->|İnteraktif görsel| D2[Plotly]
+    D2 --> D3[🌐 Topoloji Haritası]
+    D2 --> D4[🔥 Isı Haritası]
+
+    E -->|Zaman serisi| E1[Scikit-learn\nLinearRegression]
+    E1 --> E2[📈 Gecikme Tahmini\n+10 dakika]
+
+    H -->|Eşik aşımı| H1[💡 Çözüm Önerisi\nTerminal komutu ile]
+
+    F -->|Dış IP otomatik| F1[ip-api.com]
+    F1 --> F2[🗺 Dünya Haritası\nGateway Konumu]
+    F -->|Manuel IP giriş| F3[🔍 IP Sorgulama\nHarita]
+
+    D3 --> B
+    D4 --> B
+    E2 --> B
+    H1 --> B
+    F2 --> B
+    F3 --> B
 ---
 
 ## 🏢 Endüstri Perspektifi — Gerçek Hayatta Ne Kullanılıyor?
