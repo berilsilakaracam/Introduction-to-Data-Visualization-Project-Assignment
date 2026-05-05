@@ -1,4 +1,4 @@
-# 🌐 NetViz — Otonom Ağ Topolojisi ve Anomali Görselleştirici
+# 🌐 NetViz — Otonom Ağ Topolojisi ve Anomali Görselleştirici (BERİL SILA KARAÇAM)
 
 > **"Ağınızın röntgenini çeken, sorunları önceden gören gerçek zamanlı izleme platformu."**
 
@@ -11,42 +11,11 @@
 
 ## 📌 Proje Özeti
 
-NetViz, ağ mühendislerinin **yüzlerce cihazı tek ekrandan izleyebildiği**, trafik anomalilerini anlık tespit edebildiği ve makine öğrenmesi ile gelecekteki gecikmeleri tahmin edebildiği bir **veri görselleştirme uygulamasıdır**.
+NetViz, ağ mühendislerinin **yüzlerce cihazı tek ekrandan izleyebildiği**, trafik anomalilerini anlık tespit edebildiği ve makine öğrenmesi ile gelecekteki gecikmeleri tahmin edebildiği, oluşan anomalileri llm(claude apı key çekerek) ile çözüm önerileri üreten bir bir **veri görselleştirme uygulamasıdır**. Veri görselleştirme dersi özelinde programımızda "streamlit" ile görselleştirme "pandas" ile veri temizleme kullanılmıştır. Akış diyagramı aşağıda verilmiştir.
+<img width="1919" height="928" alt="image" src="https://github.com/user-attachments/assets/97a89607-1c01-4517-9fa3-ec57f58cdce1" />
 <img width="1919" height="991" alt="image" src="https://github.com/user-attachments/assets/8c6749c3-60c0-4a03-b4f5-3761c8e533e1" />
-
-
+<img width="470" height="221" alt="image" src="https://github.com/user-attachments/assets/39e7d151-19de-41dc-9313-6e7b815ed80c" />
 ---
-
-## 🔍 Neden Bu Proje? — Gerçek Hayat Problemi
-
-Ağ mühendisleri her gün şu soruyla karşılaşır:
-
-> *"Sistem neden yavaşladı? Hangi cihaz sorun çıkarıyor?"*
-
-**Mevcut çözümlerin sorunları:**
-
-| Yöntem | Sorun |
-|---|---|
-| Log dosyası okuma | Yüzlerce satır arasında sorun bulmak saatler alır |
-| SolarWinds, PRTG | Lisans başına binlerce dolar — küçük şirketler için erişilemez |
-| Manuel ping testi | Tek tek kontrol — gerçek zamanlı değil |
-
-**NetViz'in çözümü:** Tüm ağı **tek ekranda, anlık, görsel olarak** göstermek. Sorun neredeyse orası kırmızıya döner.
-
----
-
-## 📊 Veri Görselleştirme Neden Önemli?
-
-Veri görselleştirme, ham verinin insan beyninin anlayabileceği görsel formata dönüştürülmesidir. Araştırmalar gösteriyor ki:
-
-- 🧠 İnsan beyni görsel bilgiyi metinden **60.000 kat daha hızlı** işler
-- 📉 Görselleştirme kullanan şirketlerde karar alma süresi **%28 azalır**
-- 🔍 Anomali tespiti görsel sistemlerde **%73 daha hızlı** gerçekleşir
-
-Ağ yönetiminde bu fark hayati önem taşır: **bir saniye bile kritik olabilir.**
-
----
-
 ## 🏗 Sistem Mimarisi ve Akış Diyagramı
 
 ```
@@ -68,14 +37,14 @@ Ağ yönetiminde bu fark hayati önem taşır: **bir saniye bile kritik olabilir
                            │
           ┌────────────────┼────────────────┐
           ▼                ▼                ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────────┐
-│   KEŞİF      │  │  GÖRSELLEŞ  │  │    TAHMİN        │
-│  MOTORU      │  │  TİRME       │  │    MOTORİ        │
-│              │  │              │  │                  │
-│ Scapy (ARP)  │  │ NetworkX     │  │ Scikit-learn     │
-│ ICMP Ping    │  │ (Graf yapısı)│  │ (LinReg modeli)  │
-│ SNMP         │  │ Plotly       │  │ NumPy            │
-│              │  │ (Görsel)     │  │                  │
+┌──────────────┐  ┌──────────────┐  ┌─────────────────┐
+│   KEŞİF      │  │  GÖRSELLEŞ   │  │   ÇÖZÜM ÖNERİSİ(LLM) │
+│  MOTORU      │  │  TİRME       │  │ OLUŞAN TOPOLOJİYİ    │
+│              │  │              │  │ ANALİZ EDEREK CLAUDE │
+│ Scapy (ARP)  │  │ NetworkX     │  │ API KEY İLE          │
+│ ICMP Ping    │  │ (Graf yapısı)│  │BAĞLADIĞIMIZ UYGULAMA │
+│ SNMP         │  │ Plotly       │  │ ÇÖZÜM ÖNERİSİ ÜRETİR │
+│              │  │ (Görsel)     │  │                      │
 └──────┬───────┘  └──────┬───────┘  └──────┬───────────┘
        │                 │                  │
        └─────────────────▼──────────────────┘
@@ -85,11 +54,27 @@ Ağ yönetiminde bu fark hayati önem taşır: **bir saniye bile kritik olabilir
                 │    Pandas       │
                 │  (İşleme/Filtre)│
                 └─────────────────┘
-```
+
+## 🔍 Neden Bu Proje? — Gerçek Hayat Problemi
+
+Ağ mühendisleri her gün şu soruyla karşılaşır:
+
+> *"Sistem neden yavaşladı? Hangi cihaz sorun çıkarıyor?"*
+
+**Mevcut çözümlerin sorunları:**
+
+| Yöntem | Sorun |
+|---|---|
+| Log dosyası okuma | Yüzlerce satır arasında sorun bulmak saatler alır |
+| SolarWinds, PRTG | Lisans başına binlerce dolar — küçük şirketler için erişilemez |
+| Manuel ping testi | Tek tek kontrol — gerçek zamanlı değil |
+
+**NetViz'in çözümü:** Tüm ağı **tek ekranda, anlık, görsel olarak** göstermek. Sorun neredeyse orası kırmızıya döner.
 
 ---
-
 ## ⚙️ Kullanılan Kütüphaneler ve Neden Seçildiler
+
+
 
 ### 🎯 Streamlit — Arayüz Katmanı
 **Neden Streamlit?**
@@ -150,7 +135,7 @@ Ağ Cihazları
      ▼
 ┌─────────────┐
 │  Scapy ile  │──► IP, MAC, Hostname listesi
-│  Tarama     │
+│  Tarama      │
 └─────────────┘
      │
      ▼
@@ -176,7 +161,17 @@ Ağ Cihazları
                   ▼
            Streamlit UI
            (localhost:8501)
-```
+
+## 📊 Veri Görselleştirme Neden Önemli?
+
+Veri görselleştirme, ham verinin insan beyninin anlayabileceği görsel formata dönüştürülmesidir. Araştırmalar gösteriyor ki:
+
+- 🧠 İnsan beyni görsel bilgiyi metinden **60.000 kat daha hızlı** işler
+- 📉 Görselleştirme kullanan şirketlerde karar alma süresi **%28 azalır**
+- 🔍 Anomali tespiti görsel sistemlerde **%73 daha hızlı** gerçekleşir
+
+Ağ yönetiminde bu fark hayati önem taşır: **bir saniye bile kritik olabilir.**
+
 ## 🗺 Sistem Akış Diyagramı
 
 ```mermaid
@@ -188,7 +183,7 @@ flowchart TD
     B --> E[🤖 Tahmin Motoru]
     B --> F[🌍 Konum Servisi]
 
-    C -->|ARP / ICMP Ping| C1[Scapy]
+    C -->|LLM ÇÖZÜM ÖNERİSİ| C1[Scapy]
     C1 -->|IP, MAC, Hostname| G[🐼 Pandas\nVeri İşleme]
 
     G --> D
@@ -261,7 +256,6 @@ Proje aktif geliştirilmeye devam etmektedir. Planlanan özellikler:
 - [ ] **Mobil uyumlu** tasarım
 - [ ] **Çoklu ağ** desteği (birden fazla subnet)
 
----
 
 ## 🛠 Kurulum
 
@@ -275,11 +269,9 @@ pip install streamlit plotly networkx scikit-learn pandas scapy
 
 # 3. Çalıştır
 streamlit run app.py
-```
 
 Tarayıcıda `http://localhost:8501` açılır.
 
----
 
 ## 📁 Dosya Yapısı
 
@@ -288,9 +280,7 @@ Tarayıcıda `http://localhost:8501` açılır.
 ├── requirements.txt    # Python bağımlılıkları
 ├── README.md           # Bu dosya
 
-```
 
----
 
 ## 👩‍💻 Geliştirici
 
