@@ -286,7 +286,7 @@ Tarayıcıda `http://localhost:8501` açılır.
 
 **Beril Sila Karacam**
 OSTECH — Veri Görselleştirme Dersi
-2025-2026 Akademik Yılı
+2025-2026 Akademik Yılı.
 
 ---
 
