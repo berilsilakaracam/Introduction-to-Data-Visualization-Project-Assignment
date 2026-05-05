@@ -12,6 +12,8 @@
 ## 📌 Proje Özeti
 
 NetViz, ağ mühendislerinin **yüzlerce cihazı tek ekrandan izleyebildiği**, trafik anomalilerini anlık tespit edebildiği ve makine öğrenmesi ile gelecekteki gecikmeleri tahmin edebildiği bir **veri görselleştirme uygulamasıdır**.
+<img width="1919" height="991" alt="image" src="https://github.com/user-attachments/assets/8c6749c3-60c0-4a03-b4f5-3761c8e533e1" />
+
 
 ---
 
