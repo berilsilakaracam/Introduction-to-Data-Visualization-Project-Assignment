@@ -7,8 +7,18 @@ import time
 import csv
 import io
 import requests
+import subprocess
+import socket
+import ipaddress
+import threading
 from datetime import datetime
 from collections import deque
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
 
 @st.cache_data(ttl=300)
 def get_gateway_location():
@@ -172,30 +182,38 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Session state ────────────────────────────────────────────
+DEMO_DEVICES = {
+    "10.0.0.1":  {"name":"Core-R1",    "type":"router",   "load":0.45,"mac":"AA:BB:CC:DD:EE:01","ports":[22,80,443],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
+    "10.0.1.1":  {"name":"FW-01",      "type":"firewall", "load":0.62,"mac":"AA:BB:CC:DD:EE:02","ports":[443,8080],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
+    "10.1.0.1":  {"name":"SW-Access-A","type":"switch",   "load":0.28,"mac":"AA:BB:CC:DD:EE:03","ports":[22],"lat":deque([random.uniform(2,10) for _ in range(30)],maxlen=30)},
+    "10.1.0.2":  {"name":"SW-Access-B","type":"switch",   "load":0.81,"mac":"AA:BB:CC:DD:EE:04","ports":[22],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
+    "10.2.0.1":  {"name":"Web-SRV-01", "type":"server",   "load":0.35,"mac":"AA:BB:CC:DD:EE:05","ports":[80,443],"lat":deque([random.uniform(5,15) for _ in range(30)],maxlen=30)},
+    "10.2.0.2":  {"name":"DB-SRV-01",  "type":"server",   "load":0.74,"mac":"AA:BB:CC:DD:EE:06","ports":[3306],"lat":deque([random.uniform(8,25) for _ in range(30)],maxlen=30)},
+    "10.2.1.1":  {"name":"App-SRV-01", "type":"server",   "load":0.58,"mac":"AA:BB:CC:DD:EE:07","ports":[8080],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
+    "10.2.1.2":  {"name":"App-SRV-02", "type":"server",   "load":0.93,"mac":"AA:BB:CC:DD:EE:08","ports":[8080],"lat":deque([random.uniform(20,60) for _ in range(30)],maxlen=30)},
+}
+DEMO_LINKS = [
+    ("10.0.0.1","10.0.1.1"),("10.0.1.1","10.1.0.1"),
+    ("10.0.1.1","10.1.0.2"),("10.1.0.1","10.2.0.1"),
+    ("10.1.0.1","10.2.0.2"),("10.1.0.2","10.2.1.1"),
+    ("10.1.0.2","10.2.1.2"),
+]
+
 if "tick" not in st.session_state:
     st.session_state.tick = 0
     st.session_state.lat_history = [12 + math.sin(i*0.3)*4 + random.uniform(0,3) for i in range(80)]
-    st.session_state.devices = {
-        "10.0.0.1":  {"name":"Core-R1",    "type":"router",   "load":0.45,"mac":"AA:BB:CC:DD:EE:01","ports":[22,80,443],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
-        "10.0.1.1":  {"name":"FW-01",      "type":"firewall", "load":0.62,"mac":"AA:BB:CC:DD:EE:02","ports":[443,8080],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
-        "10.1.0.1":  {"name":"SW-Access-A","type":"switch",   "load":0.28,"mac":"AA:BB:CC:DD:EE:03","ports":[22],"lat":deque([random.uniform(2,10) for _ in range(30)],maxlen=30)},
-        "10.1.0.2":  {"name":"SW-Access-B","type":"switch",   "load":0.81,"mac":"AA:BB:CC:DD:EE:04","ports":[22],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
-        "10.2.0.1":  {"name":"Web-SRV-01", "type":"server",   "load":0.35,"mac":"AA:BB:CC:DD:EE:05","ports":[80,443],"lat":deque([random.uniform(5,15) for _ in range(30)],maxlen=30)},
-        "10.2.0.2":  {"name":"DB-SRV-01",  "type":"server",   "load":0.74,"mac":"AA:BB:CC:DD:EE:06","ports":[3306],"lat":deque([random.uniform(8,25) for _ in range(30)],maxlen=30)},
-        "10.2.1.1":  {"name":"App-SRV-01", "type":"server",   "load":0.58,"mac":"AA:BB:CC:DD:EE:07","ports":[8080],"lat":deque([random.uniform(5,20) for _ in range(30)],maxlen=30)},
-        "10.2.1.2":  {"name":"App-SRV-02", "type":"server",   "load":0.93,"mac":"AA:BB:CC:DD:EE:08","ports":[8080],"lat":deque([random.uniform(20,60) for _ in range(30)],maxlen=30)},
-    }
-    st.session_state.links = [
-        ("10.0.0.1","10.0.1.1"),("10.0.1.1","10.1.0.1"),
-        ("10.0.1.1","10.1.0.2"),("10.1.0.1","10.2.0.1"),
-        ("10.1.0.1","10.2.0.2"),("10.1.0.2","10.2.1.1"),
-        ("10.1.0.2","10.2.1.2"),
-    ]
-    st.session_state.alerts = []
+    st.session_state.devices = dict(DEMO_DEVICES)
+    st.session_state.links   = list(DEMO_LINKS)
+    st.session_state.alerts  = []
     st.session_state.selected = None
+    st.session_state.demo_mode = True
+    st.session_state.llm_response = ""
+    st.session_state.llm_error = ""
+    st.session_state.scan_done = False
 
 devices = st.session_state.devices
 links   = st.session_state.links
+
 
 def load_color(load):
     if load < 0.3: return "#00ff88"
@@ -211,25 +229,276 @@ def health_score():
     scores = [100 if d["load"]<0.3 else (60 if d["load"]<0.7 else 15) for d in devices.values()]
     return round(sum(scores)/len(scores))
 
-def get_solutions(devices, threshold):
+def get_hostname(ip):
+    try:
+        return socket.gethostbyaddr(str(ip))[0].split('.')[0]
+    except Exception:
+        return str(ip)
+
+def guess_device_type(hostname, ip_str):
+    h = hostname.lower()
+    last = int(ip_str.split('.')[-1])
+    if any(k in h for k in ["router","gw","gateway","rt"]): return "router"
+    if any(k in h for k in ["fw","firewall","pf"]):          return "firewall"
+    if any(k in h for k in ["sw","switch","hub"]):           return "switch"
+    if any(k in h for k in ["srv","server","nas","db","web","app"]): return "server"
+    if last == 1: return "router"
+    return "host"
+
+def ping_host(ip, timeout_ms=800):
+    try:
+        r = subprocess.run(["ping","-n","1","-w",str(timeout_ms),str(ip)],
+                           capture_output=True, timeout=3)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+@st.cache_data(ttl=120, show_spinner=False)
+def scan_network_arp():
+    """ARP tablosunu okuyarak ağdaki cihazları keşfeder."""
+    discovered = {}
+    try:
+        result = subprocess.run(["arp","-a"], capture_output=True, text=True, timeout=10)
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            for part in parts:
+                clean = part.strip("()")
+                try:
+                    ip_obj = ipaddress.ip_address(clean)
+                    if ip_obj.is_loopback or ip_obj.is_multicast or ip_obj.is_link_local:
+                        continue
+                    ip_str = str(ip_obj)
+                    idx = parts.index(part)
+                    mac = parts[idx+1] if idx+1 < len(parts) else "??:??:??:??:??:??"
+                    if mac.startswith("ff") or mac == "---":
+                        continue
+                    hostname = get_hostname(ip_str)
+                    dtype = guess_device_type(hostname, ip_str)
+                    discovered[ip_str] = {
+                        "name": hostname, "type": dtype,
+                        "load": random.uniform(0.1, 0.55),
+                        "mac": mac.upper(),
+                        "ports": [80,443] if dtype=="server" else [22],
+                        "lat": deque([random.uniform(5,25) for _ in range(30)], maxlen=30),
+                        "real": True,
+                    }
+                except ValueError:
+                    continue
+    except Exception:
+        pass
+    return discovered
+
+def scan_network_ping():
+    """Ping sweep ile subnet'teki canlı cihazları bulur."""
+    discovered = {}
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        my_ip = s.getsockname()[0]
+        s.close()
+        net = ipaddress.ip_network(my_ip + "/24", strict=False)
+    except Exception:
+        return discovered
+
+    lock = threading.Lock()
+    def check(ip):
+        ip_str = str(ip)
+        if ping_host(ip_str):
+            hostname = get_hostname(ip_str)
+            dtype = guess_device_type(hostname, ip_str)
+            with lock:
+                discovered[ip_str] = {
+                    "name": hostname, "type": dtype,
+                    "load": random.uniform(0.1, 0.55),
+                    "mac": "??:??:??:??:??:??",
+                    "ports": [80,443] if dtype=="server" else [22],
+                    "lat": deque([random.uniform(5,25) for _ in range(30)], maxlen=30),
+                    "real": True,
+                }
+
+    threads = [threading.Thread(target=check, args=(ip,), daemon=True)
+               for ip in list(net.hosts())[:64]]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=3)
+    return discovered
+
+# ── LLM Fonksiyonları ─────────────────────────────────────────
+def format_network_context(devs, threshold):
+    lines = ["=== AĞ ANOMALİ RAPORU ===\n"]
+    critical = [(ip,d) for ip,d in devs.items() if d["load"] > threshold]
+    warning  = [(ip,d) for ip,d in devs.items() if 0.5 < d["load"] <= threshold]
+    lines.append(f"KRİTİK ({len(critical)} cihaz, eşik %{threshold*100:.0f}):")
+    for ip, d in critical:
+        lat = round(sum(list(d["lat"])[-5:])/5,1) if d["lat"] else 0
+        lines.append(f"  • {d['name']} ({ip}) | Tür:{d['type']} | Yük:%{d['load']*100:.0f} | Gecikme:{lat}ms")
+    lines.append(f"\nUYARI ({len(warning)} cihaz):")
+    for ip, d in warning:
+        lines.append(f"  • {d['name']} ({ip}) | Tür:{d['type']} | Yük:%{d['load']*100:.0f}")
+    return "\n".join(lines)
+
+def get_llm_solution_claude(api_key, context):
+    if not ANTHROPIC_AVAILABLE:
+        return None, "anthropic paketi yüklü değil."
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=900,
+            messages=[{"role":"user","content":(
+                "Sen kıdemli bir ağ mühendisisin. Aşağıdaki ağ anomali raporunu analiz et "
+                "ve her KRİTİK cihaz için SOMUT çözüm önerileri ver. "
+                "Türkçe yaz, kısa ve net ol, terminal komutları da ekle.\n\n" + context
+            )}]
+        )
+        return msg.content[0].text, None
+    except anthropic.AuthenticationError:
+        return None, "❌ Geçersiz Claude API Key."
+    except anthropic.RateLimitError:
+        return None, "❌ Claude API rate limit aşıldı."
+    except Exception as e:
+        return None, f"❌ Claude API hatası: {e}"
+
+def get_llm_solution_ollama(context, model_name=None, host="http://localhost:11434"):
+    """
+    Ollama'ya istek atar. model_name verilmezse otomatik olarak
+    kurulu ilk uygun modeli seçer.
+    """
+    # 1) Bağlantıyı kontrol et + kurulu modelleri çek
+    available = ollama_list_models(host)
+    if available is None:
+        return None, (
+            "❌ Ollama'ya bağlanılamıyor (" + host + ").\n"
+            "Çözüm: Terminal'de 'ollama serve' komutunu çalıştırın "
+            "veya Ollama uygulamasını başlatın."
+        )
+    if not available:
+        return None, (
+            "⚠️ Ollama çalışıyor ama kurulu model yok.\n"
+            "Çözüm: Terminal'de 'ollama pull gemma3:1b' komutunu çalıştırın."
+        )
+
+    # 2) Model adını çöz: kullanıcı seçimi → otomatik fallback
+    chosen = ollama_resolve_model(model_name, available)
+    if not chosen:
+        return None, (
+            f"⚠️ '{model_name}' modeli bulunamadı.\n"
+            f"Kurulu modeller: {', '.join(available)}\n"
+            f"Çözüm: 'ollama pull {model_name}' veya listeden bir model seçin."
+        )
+
+    # 3) İstek at
+    try:
+        payload = {
+            "model": chosen,
+            "prompt": (
+                "Sen kıdemli bir ağ mühendisisin. Aşağıdaki ağ anomali raporunu "
+                "Türkçe analiz et ve her KRİTİK cihaz için somut çözüm önerileri ver. "
+                "Kısa, net ve teknik ol; mümkünse terminal komutu da ekle.\n\n"
+                + context
+            ),
+            "stream": False,
+            "options": {"temperature": 0.5},
+        }
+        # İlk istekte model yüklenir; bu yüzden timeout yüksek
+        r = requests.post(f"{host}/api/generate", json=payload, timeout=180)
+        if r.status_code == 200:
+            text = r.json().get("response", "").strip()
+            if not text:
+                return None, f"⚠️ '{chosen}' boş yanıt döndürdü."
+            return f"[Model: {chosen}]\n\n{text}", None
+        return None, f"❌ Ollama HTTP {r.status_code}: {r.text[:200]}"
+    except requests.exceptions.ConnectionError:
+        return None, f"❌ Ollama bağlantı hatası ({host})"
+    except requests.exceptions.Timeout:
+        return None, (
+            f"⏱️ '{chosen}' yanıt vermedi (180sn timeout).\n"
+            f"Daha küçük bir model deneyin (örn: gemma3:1b)."
+        )
+    except Exception as e:
+        return None, f"❌ Ollama hatası: {type(e).__name__}: {e}"
+
+
+def ollama_list_models(host="http://localhost:11434"):
+    """
+    Ollama'da kurulu modelleri listeler.
+    Dönüş:
+      None → Ollama çalışmıyor / bağlantı hatası
+      []   → Ollama çalışıyor ama hiç model kurulu değil
+      ["gemma3:1b", ...] → kurulu modeller
+    """
+    try:
+        r = requests.get(f"{host}/api/tags", timeout=3)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+        return models
+    except Exception:
+        return None
+
+
+def ollama_resolve_model(requested, available):
+    """
+    İstenen model adını kurulu modeller listesine eşler.
+    Tam eşleşme yoksa kısmi eşleşme (örn. 'gemma3' → 'gemma3:1b') dener.
+    Hiç model adı verilmemişse en küçük/hızlı modeli otomatik seçer.
+    """
+    if not available:
+        return None
+
+    # 1) Kullanıcı model belirttiyse
+    if requested:
+        # Tam eşleşme
+        if requested in available:
+            return requested
+        # ':latest' ekleyerek dene
+        if f"{requested}:latest" in available:
+            return f"{requested}:latest"
+        # Kısmi eşleşme (örn. 'gemma3' → 'gemma3:1b')
+        for m in available:
+            if m.startswith(requested + ":") or requested in m:
+                return m
+        return None
+
+    # 2) Otomatik seçim — küçük/hızlı modelleri tercih et
+    priority_keywords = ["gemma3:1b", "gemma2:2b", "llama3.2:1b", "llama3.2:3b",
+                          "phi3", "qwen", "tinyllama"]
+    for kw in priority_keywords:
+        for m in available:
+            if kw in m:
+                return m
+    # Yoksa ilk kurulu modeli kullan
+    return available[0]
+
+
+def get_solutions_static(devs, threshold):
     solutions = []
-    for ip, d in devices.items():
+    for ip, d in devs.items():
         if d["load"] > threshold:
             if d["type"] == "server":
                 solutions.append({
-                    "device": d["name"], "ip": ip,
-                    "problem": f"CPU/Bellek yükü kritik seviyede (%{d['load']*100:.0f})",
-                    "solution": "Yük dengeleme (load balancing) veya yatay ölçeklendirme önerilir.",
-                    "cmd": f"# Örnek: nginx upstream'e {d['name']} klonu ekle\nupstream backend {{ server {ip}; server {ip.rsplit('.',1)[0]}.{int(ip.rsplit('.',1)[1])+10}; }}"
+                    "device":d["name"],"ip":ip,
+                    "problem":f"CPU/Bellek yükü kritik (%{d['load']*100:.0f})",
+                    "solution":"Yük dengeleme veya yatay ölçeklendirme önerilir.",
+                    "cmd":f"# nginx upstream\nupstream backend {{\n  server {ip};\n}}"
                 })
-            elif d["type"] == "switch":
+            elif d["type"] in ("switch","router"):
                 solutions.append({
-                    "device": d["name"], "ip": ip,
-                    "problem": f"Switch port yükü aşırı (%{d['load']*100:.0f})",
-                    "solution": "VLAN segmentasyonu ile trafik dağıtımı yapılmalıdır.",
-                    "cmd": f"# Switch VLAN komutu\nswitch# vlan database\nswitch(vlan)# vlan 20 name OFFLOAD"
+                    "device":d["name"],"ip":ip,
+                    "problem":f"{d['type'].capitalize()} trafik yükü aşırı (%{d['load']*100:.0f})",
+                    "solution":"VLAN segmentasyonu ile trafik dağıtımı yapılmalıdır.",
+                    "cmd":"switch# vlan database\nswitch(vlan)# vlan 20 name OFFLOAD"
+                })
+            else:
+                solutions.append({
+                    "device":d["name"],"ip":ip,
+                    "problem":f"Cihaz yükü kritik (%{d['load']*100:.0f})",
+                    "solution":"Cihazı yeniden başlatın veya servis durumunu kontrol edin.",
+                    "cmd":f"ping {ip}\nssh admin@{ip}"
                 })
     return solutions
+
+
 
 def export_csv():
     out = io.StringIO()
@@ -258,6 +527,116 @@ with st.sidebar:
     threshold = st.slider("KRİTİK EŞİK", 50, 95, 80) / 100
     auto = st.toggle("CANLI AKIŞ", value=True)
 
+    # ── Ağ Keşif Bölümü ──────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<div class="section-title">🔍 AĞ KEŞİF</div>', unsafe_allow_html=True)
+
+    demo_mode = st.toggle("DEMO MODU", value=st.session_state.demo_mode, key="demo_toggle")
+    if demo_mode != st.session_state.demo_mode:
+        st.session_state.demo_mode = demo_mode
+        if demo_mode:
+            st.session_state.devices = dict(DEMO_DEVICES)
+            st.session_state.links   = list(DEMO_LINKS)
+            st.session_state.scan_done = False
+        st.rerun()
+
+    if not st.session_state.demo_mode:
+        scan_method = st.radio("Tarama Yöntemi", ["ARP (Hızlı)", "Ping Sweep"], label_visibility="visible")
+        if st.button("🔄 AĞI TARA", width='stretch'):
+            with st.spinner("Ağ taranıyor..."):
+                if scan_method == "ARP (Hızlı)":
+                    found = scan_network_arp()
+                else:
+                    found = scan_network_ping()
+
+                if found:
+                    st.session_state.devices = found
+                    ips = list(found.keys())
+                    # Basit zincir topoloji oluştur
+                    st.session_state.links = [(ips[i], ips[i+1]) for i in range(len(ips)-1)]
+                    st.session_state.scan_done = True
+                    st.success(f"✅ {len(found)} cihaz bulundu!")
+                else:
+                    st.warning("⚠️ Ağda cihaz bulunamadı. Demo moda geçiliyor.")
+                    st.session_state.demo_mode = True
+                    st.session_state.devices = dict(DEMO_DEVICES)
+                    st.session_state.links   = list(DEMO_LINKS)
+        if st.session_state.scan_done:
+            st.caption(f"📡 {len(st.session_state.devices)} gerçek cihaz aktif")
+    else:
+        st.caption("ℹ️ Demo: 8 simüle cihaz gösteriliyor")
+
+    devices = st.session_state.devices
+    links   = st.session_state.links
+
+    # ── LLM Ayarları ─────────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<div class="section-title">🤖 LLM ÇÖZÜM ÖNERİSİ</div>', unsafe_allow_html=True)
+
+    llm_provider = st.selectbox(
+        "LLM Sağlayıcı",
+        ["Yok (Statik)", "Claude API", "Ollama (Lokal)"],
+        label_visibility="visible"
+    )
+
+    claude_api_key = ""
+    ollama_model = None
+
+    if llm_provider == "Claude API":
+        claude_api_key = st.text_input(
+            "Claude API Key",
+            type="password",
+            placeholder="sk-ant-...",
+            help="Anthropic Claude API anahtarınızı girin"
+        )
+
+    elif llm_provider == "Ollama (Lokal)":
+        # Ollama bağlantı durumunu canlı kontrol et
+        installed = ollama_list_models()
+        if installed is None:
+            st.error("❌ Ollama çalışmıyor")
+            st.caption("Çözüm: Terminal'de `ollama serve` çalıştırın")
+        elif not installed:
+            st.warning("⚠️ Hiç model kurulu değil")
+            st.caption("Çözüm: `ollama pull gemma3:1b`")
+        else:
+            st.success(f"✅ Ollama aktif ({len(installed)} model)")
+            # Hızlı modelleri başa al
+            priority = ["gemma3:1b", "gemma2:2b", "llama3.2:1b",
+                        "llama3.2:3b", "phi3", "tinyllama"]
+            sorted_models = sorted(
+                installed,
+                key=lambda m: next(
+                    (i for i, p in enumerate(priority) if p in m),
+                    len(priority)
+                )
+            )
+            ollama_model = st.selectbox(
+                "Model Seç",
+                sorted_models,
+                help="Küçük modeller (1b-3b) daha hızlı, büyükler daha akıllıdır."
+            )
+
+    if st.button("🤖 LLM ANALİZ ET", width='stretch'):
+        context = format_network_context(devices, threshold)
+        if llm_provider == "Claude API":
+            if not claude_api_key:
+                st.session_state.llm_error = "⚠️ Claude API Key gerekli."
+                st.session_state.llm_response = ""
+            else:
+                with st.spinner("Claude analiz ediyor..."):
+                    resp, err = get_llm_solution_claude(claude_api_key, context)
+                    st.session_state.llm_response = resp or ""
+                    st.session_state.llm_error = err or ""
+        elif llm_provider == "Ollama (Lokal)":
+            with st.spinner(f"Ollama analiz ediyor ({ollama_model or 'auto'})... İlk istekte model yüklenir, sabırlı olun."):
+                resp, err = get_llm_solution_ollama(context, model_name=ollama_model)
+                st.session_state.llm_response = resp or ""
+                st.session_state.llm_error = err or ""
+        else:
+            st.session_state.llm_response = ""
+            st.session_state.llm_error = ""
+
     st.markdown("---")
 
     score = health_score()
@@ -273,8 +652,10 @@ with st.sidebar:
     st.download_button(
         "📥 RAPOR İNDİR (CSV)", data=export_csv(),
         file_name=f"netviz_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv", use_container_width=True
+        mime="text/csv", width='stretch'
     )
+
+
 
 # ── Header ───────────────────────────────────────────────────
 st.markdown(f"""
@@ -423,7 +804,7 @@ with col_main:
                   showline=False),
         hovermode="closest",
     )
-    st.plotly_chart(fig, use_container_width=True, key="topo")
+    st.plotly_chart(fig, width='stretch', key="topo")
 
     # Gecikme grafiği
     st.markdown('<div class="section-title">GECİKME TAHMİNİ — ÖNÜMÜZDEKİ 10 DAKİKA</div>', unsafe_allow_html=True)
@@ -484,7 +865,7 @@ with col_main:
         hoverlabel=dict(bgcolor="#040810", bordercolor="#00ff88",
                        font=dict(family="JetBrains Mono"))
     )
-    st.plotly_chart(fig2, use_container_width=True, key="lat")
+    st.plotly_chart(fig2, width='stretch', key="lat")
 
 with col_right:
     # Anomali log
@@ -508,10 +889,26 @@ with col_right:
         """, unsafe_allow_html=True)
 
     # Çözüm önerileri
-    st.markdown('<div class="section-title" style="margin-top:16px">ÇÖZÜM ÖNERİLERİ</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title" style="margin-top:16px">🤖 ÇÖZÜM ÖNERİLERİ</div>', unsafe_allow_html=True)
 
-    solutions = get_solutions(devices, threshold)
-    if solutions:
+    # LLM yanıtı varsa göster
+    if st.session_state.get("llm_response"):
+        st.markdown(f"""
+        <div class="solution-card">
+            <div class="solution-title">🤖 AI ANALİZ SONUCU</div>
+            <div class="solution-body" style="white-space:pre-wrap;line-height:1.7">
+                {st.session_state.llm_response.replace(chr(10), '<br>')}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    elif st.session_state.get("llm_error"):
+        st.markdown(f"""
+        <div class="alert-card alert-warning">
+            {st.session_state.llm_error}<br>
+            <span style="opacity:0.6;font-size:0.65rem">Aşağıda statik öneriler gösterilmektedir.</span>
+        </div>
+        """, unsafe_allow_html=True)
+        solutions = get_solutions_static(devices, threshold)
         for sol in solutions[:3]:
             st.markdown(f"""
             <div class="solution-card">
@@ -524,12 +921,28 @@ with col_right:
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.markdown("""
-        <div class="alert-card alert-ok">
-            ✅ Tüm cihazlar normal aralıkta.<br>
-            <span style="opacity:0.6;font-size:0.65rem">Aktif sorun tespit edilmedi.</span>
-        </div>
-        """, unsafe_allow_html=True)
+        solutions = get_solutions_static(devices, threshold)
+        if solutions:
+            st.caption("💡 Sidebar'dan LLM Analiz Et butonuna tıklayarak AI önerileri alabilirsiniz.")
+            for sol in solutions[:3]:
+                st.markdown(f"""
+                <div class="solution-card">
+                    <div class="solution-title">⚡ {sol['device']} — ÇÖZÜM</div>
+                    <div class="solution-body">
+                        <b>Sorun:</b> {sol['problem']}<br>
+                        <b>Öneri:</b> {sol['solution']}
+                    </div>
+                    <div class="solution-cmd">{sol['cmd']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="alert-card alert-ok">
+                ✅ Tüm cihazlar normal aralıkta.<br>
+                <span style="opacity:0.6;font-size:0.65rem">Aktif sorun tespit edilmedi.</span>
+            </div>
+            """, unsafe_allow_html=True)
+
 
     # Cihaz listesi
     st.markdown('<div class="section-title" style="margin-top:16px">CİHAZ LİSTESİ</div>', unsafe_allow_html=True)
@@ -591,14 +1004,14 @@ with col_gw:
                 showcountries=True, countrycolor="rgba(0,255,136,0.15)",
             )
         )
-        st.plotly_chart(fig_gw, use_container_width=True, key="gw_map")
+        st.plotly_chart(fig_gw, width='stretch', key="gw_map")
     else:
         st.info("Gateway konumu alınamadı.")
 
 with col_ip_search:
     st.markdown('<div class="section-title" style="font-size:0.6rem">🔍 IP KONUM SORGULA</div>', unsafe_allow_html=True)
     ip_query = st.text_input("IP Adresi", placeholder="örn: 8.8.8.8 (Google DNS)")
-    if st.button("🔍 Konumu Bul", use_container_width=True) and ip_query:
+    if st.button("🔍 Konumu Bul", width='stretch') and ip_query:
         data = get_ip_location(ip_query)
         if data and data.get("status") == "success":
             st.markdown(f"""
@@ -635,7 +1048,7 @@ with col_ip_search:
                     showcountries=True, countrycolor="rgba(255,68,68,0.15)",
                 )
             )
-            st.plotly_chart(fig_ip, use_container_width=True, key="ip_map")
+            st.plotly_chart(fig_ip, width='stretch', key="ip_map")
         else:
             st.error("Bu IP yerel ağ adresi veya bulunamadı. Gerçek bir IP girin (örn: 8.8.8.8)")
 
@@ -646,7 +1059,9 @@ if auto:
             devices[ip]["load"] + random.uniform(-0.025, 0.025)))
         lat_val = round(8 + devices[ip]["load"]*50 + random.uniform(-3,5), 1)
         devices[ip]["lat"].append(lat_val)
-    devices["10.2.1.2"]["load"] = max(0.87, devices["10.2.1.2"]["load"])
+    # Demo modunda dramatik bir kritik cihaz tut (gerçek taramada bu IP olmayabilir)
+    if "10.2.1.2" in devices:
+        devices["10.2.1.2"]["load"] = max(0.87, devices["10.2.1.2"]["load"])
 
     new_lat = 10 + sum(d["load"] for d in devices.values())/len(devices)*45 + random.uniform(-2,4)
     st.session_state.lat_history.append(round(new_lat,2))
